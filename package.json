@@ -25,7 +25,18 @@
   },
   "manifest": {
     "host_permissions": [
-      "https://*/*"
+      "https://calendar.google.com/*"
+    ],
+    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0yGbTMP3+6KHi+DZpjBuUNnsvRNcz1xGigBUAgemmH2zztOGrd9IxaIFIBjUGSQMzIFmDhrcEioxwkYBag2W1//wxhoW8PkfdlyXPCcCqEyTHfhMtsGdpHKjm6twLP+4l1bEBVLFFoCNU50jnMy0nqU41HO+ZtguXPj/GXXMlEmTQplWa1r3dcGUwnZzjNqxNdBAVhSWTDEb0FZnOW2Df0yGlMNPZi3eHiTVRmunIXrDMlygrb6+r+0ZKy/Aj7+sgAAUfCHWb1mJhvnhLHrvWtQV5NXHa92V0m7w4aElMlo3pQeH8+4vxTTdl6/4hnGG2x3W1hpxBuzJAWMCvgDwNQIDAQAB",
+    "oauth2": {
+      "client_id": "928994118672-nf77na4rcfted2r9o256mg3tq8asgrlb.apps.googleusercontent.com",
+      "scopes": [
+        "https://www.googleapis.com/auth/calendar"
+      ]
+    },
+    "permissions": [
+      "identity",
+      "storage"
     ]
   }
 }

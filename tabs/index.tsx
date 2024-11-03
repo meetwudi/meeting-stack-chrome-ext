@@ -1,14 +1,12 @@
+import AuthWrapper from "~components/auth-wrapper"
+import Meetings from "~components/meetings"
+
 function IndexPage() {
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        padding: 16
-      }}>
-      <h2>Meeting Stack</h2>
-    </div>
+    <AuthWrapper>
+      <Meetings />
+    </AuthWrapper>
   )
 }
- 
-export default IndexPage;
+
+export default IndexPage
