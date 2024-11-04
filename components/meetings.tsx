@@ -7,6 +7,8 @@ import {
   getCoreRowModel,
   flexRender,
 } from '@tanstack/react-table'
+import NotesModal from './NotesModal';
+import Tooltip from './Tooltip';
 
 interface Meeting {
   id: string;
@@ -19,6 +21,9 @@ interface Meeting {
     self: boolean;
   };
   order?: number;
+  recurringEventId?: string;
+  notes?: string;
+  seriesNotes?: string;
 }
 
 interface DateRange {
@@ -91,6 +96,23 @@ const storeMeetingOrder = async (meetings: Meeting[], start: Date) => {
 const getMeetingOrder = async (start: Date): Promise<Record<string, number>> => {
   const result = await chrome.storage.local.get(getStorageKey(start));
   return result[getStorageKey(start)] || {};
+};
+
+// Add these helper functions for notes storage
+const getNoteStorageKey = (meetingId: string): string => {
+  return `meetingNote_${meetingId}`;
+};
+
+const getSeriesNoteStorageKey = (recurringEventId: string): string => {
+  return `seriesNote_${recurringEventId}`;
+};
+
+const storeNote = async (meetingId: string, note: string) => {
+  await chrome.storage.local.set({ [getNoteStorageKey(meetingId)]: note });
+};
+
+const storeSeriesNote = async (recurringEventId: string, note: string) => {
+  await chrome.storage.local.set({ [getSeriesNoteStorageKey(recurringEventId)]: note });
 };
 
 // Row component for handling drag and drop
@@ -195,6 +217,8 @@ function Meetings() {
   const [showSingleAttendee, setShowSingleAttendee] = useState(false)
   const [showDeclined, setShowDeclined] = useState(false)
   const [showFree, setShowFree] = useState(false)
+  const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
+  const [isNotesModalOpen, setIsNotesModalOpen] = useState(false);
 
   useEffect(() => {
     chrome.identity.getProfileUserInfo((userInfo) => {
@@ -229,20 +253,43 @@ function Meetings() {
         )
 
         const data = await response.json()
-        const meetingsList = filterMeetings(data.items)
-          .map((item: any) => ({
-            id: item.id,
-            summary: item.summary,
-            startTime: item.start.dateTime,
-            endTime: item.end.dateTime,
-            responseStatus: item.attendees?.find((a: any) => a.self)?.responseStatus || 'needsAction',
-            organizer: item.organizer,
-            order: storedOrder[item.id] ?? Number.MAX_SAFE_INTEGER
-          }))
+        
+        // Load notes for all meetings
+        const meetingsWithNotes = await Promise.all(
+          filterMeetings(data.items).map(async (item: any) => {
+            // Get individual meeting notes
+            const noteKey = getNoteStorageKey(item.id);
+            const noteResult = await chrome.storage.local.get(noteKey);
+            const notes = noteResult[noteKey];
+
+            // Get series notes if it's a recurring meeting
+            let seriesNotes;
+            if (item.recurringEventId) {
+              const seriesKey = getSeriesNoteStorageKey(item.recurringEventId);
+              const seriesResult = await chrome.storage.local.get(seriesKey);
+              seriesNotes = seriesResult[seriesKey];
+            }
+
+            return {
+              id: item.id,
+              summary: item.summary,
+              startTime: item.start.dateTime,
+              endTime: item.end.dateTime,
+              responseStatus: item.attendees?.find((a: any) => a.self)?.responseStatus || 'needsAction',
+              organizer: item.organizer,
+              order: storedOrder[item.id] ?? Number.MAX_SAFE_INTEGER,
+              recurringEventId: item.recurringEventId,
+              notes,
+              seriesNotes,
+            };
+          })
+        );
+
+        const filteredMeetings = meetingsWithNotes
           .filter(meeting => showDeclined || meeting.responseStatus !== 'declined')
           .sort((a, b) => a.order - b.order);
 
-        setMeetings(meetingsList);
+        setMeetings(filteredMeetings);
         setLoading(false);
       });
     } catch (error) {
@@ -272,20 +319,43 @@ function Meetings() {
         );
 
         const data = await response.json();
-        const meetingsList = filterMeetings(data.items)
-          .map((item: any) => ({
-            id: item.id,
-            summary: item.summary,
-            startTime: item.start.dateTime,
-            endTime: item.end.dateTime,
-            responseStatus: item.attendees?.find((a: any) => a.self)?.responseStatus || 'needsAction',
-            organizer: item.organizer,
-            order: storedOrder[item.id] ?? Number.MAX_SAFE_INTEGER
-          }))
+        
+        // Load notes for all meetings
+        const meetingsWithNotes = await Promise.all(
+          filterMeetings(data.items).map(async (item: any) => {
+            // Get individual meeting notes
+            const noteKey = getNoteStorageKey(item.id);
+            const noteResult = await chrome.storage.local.get(noteKey);
+            const notes = noteResult[noteKey];
+
+            // Get series notes if it's a recurring meeting
+            let seriesNotes;
+            if (item.recurringEventId) {
+              const seriesKey = getSeriesNoteStorageKey(item.recurringEventId);
+              const seriesResult = await chrome.storage.local.get(seriesKey);
+              seriesNotes = seriesResult[seriesKey];
+            }
+
+            return {
+              id: item.id,
+              summary: item.summary,
+              startTime: item.start.dateTime,
+              endTime: item.end.dateTime,
+              responseStatus: item.attendees?.find((a: any) => a.self)?.responseStatus || 'needsAction',
+              organizer: item.organizer,
+              order: storedOrder[item.id] ?? Number.MAX_SAFE_INTEGER,
+              recurringEventId: item.recurringEventId,
+              notes,
+              seriesNotes,
+            };
+          })
+        );
+
+        const filteredMeetings = meetingsWithNotes
           .filter(meeting => showDeclined || meeting.responseStatus !== 'declined')
           .sort((a, b) => a.order - b.order);
 
-        resolve(meetingsList);
+        resolve(filteredMeetings);
       });
     });
   };
@@ -432,6 +502,37 @@ function Meetings() {
       .filter((item: any) => showSingleAttendee || (item.attendees && item.attendees.length > 1))
   }
 
+  const handleNotesClick = (meeting: Meeting) => {
+    setSelectedMeeting(meeting);
+    setIsNotesModalOpen(true);
+  };
+
+  const handleNoteSave = async (note: string, isSeriesNote: boolean = false) => {
+    if (!selectedMeeting) return;
+
+    if (isSeriesNote && selectedMeeting.recurringEventId) {
+      await storeSeriesNote(selectedMeeting.recurringEventId, note);
+      setMeetings(prevMeetings => 
+        prevMeetings.map(meeting => 
+          meeting.recurringEventId === selectedMeeting.recurringEventId
+            ? { ...meeting, seriesNotes: note }
+            : meeting
+        )
+      );
+    } else {
+      await storeNote(selectedMeeting.id, note);
+      setMeetings(prevMeetings => 
+        prevMeetings.map(meeting => 
+          meeting.id === selectedMeeting.id
+            ? { ...meeting, notes: note }
+            : meeting
+        )
+      );
+    }
+    setIsNotesModalOpen(false);
+    setSelectedMeeting(null);
+  };
+
   const table = useReactTable({
     data: meetings,
     columns: [
@@ -464,43 +565,63 @@ function Meetings() {
       {
         header: 'Actions',
         cell: ({ row }) => (
-          <div style={{ display: 'flex', gap: '4px' }}>
-            <button onClick={() => moveToTop(row.index)} title="Move to top">↑↑</button>
-            <button onClick={() => moveToBottom(row.index)} title="Move to bottom">↓↓</button>
-            {row.original.organizer.self ? (
-              <ResponseButton 
-                onClick={() => cancelMeeting(row.original.id)}
-                icon="🗑️"
-                title="Delete meeting"
-              />
-            ) : (
-              <>
-                <ResponseButton 
-                  onClick={() => updateMeetingResponse(row.original.id, 'accepted')}
-                  icon="✓"
-                  title="Accept"
-                  active={row.original.responseStatus === 'accepted'}
-                />
-                <ResponseButton 
-                  onClick={() => updateMeetingResponse(row.original.id, 'tentative')}
-                  icon="❓"
-                  title="Maybe"
-                  active={row.original.responseStatus === 'tentative'}
-                />
-                <ResponseButton 
-                  onClick={() => updateMeetingResponse(row.original.id, 'declined')}
-                  icon="✗"
-                  title="Decline"
-                  active={row.original.responseStatus === 'declined'}
-                />
-                <ResponseButton 
-                  onClick={() => updateMeetingResponse(row.original.id, 'needsAction')}
-                  icon="🔄"
-                  title="Reset RSVP"
-                  active={row.original.responseStatus === 'needsAction'}
-                />
-              </>
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <Tooltip text="Move to top">
+              <span 
+                onClick={() => moveToTop(row.index)} 
+                style={{ cursor: 'pointer' }}
+              >⬆️</span>
+            </Tooltip>
+            <Tooltip text="Move to bottom">
+              <span 
+                onClick={() => moveToBottom(row.index)} 
+                style={{ cursor: 'pointer' }}
+              >⬇️</span>
+            </Tooltip>
+            <Tooltip text="Accept">
+              <span 
+                onClick={() => updateMeetingResponse(row.original.id, 'accepted')}
+                style={{ 
+                  cursor: 'pointer',
+                  opacity: row.original.responseStatus === 'accepted' ? 1 : 0.5 
+                }}
+              >✅</span>
+            </Tooltip>
+            <Tooltip text="Maybe">
+              <span 
+                onClick={() => updateMeetingResponse(row.original.id, 'tentative')}
+                style={{ 
+                  cursor: 'pointer',
+                  opacity: row.original.responseStatus === 'tentative' ? 1 : 0.5 
+                }}
+              >❓</span>
+            </Tooltip>
+            <Tooltip text="Decline">
+              <span 
+                onClick={() => updateMeetingResponse(row.original.id, 'declined')}
+                style={{ 
+                  cursor: 'pointer',
+                  opacity: row.original.responseStatus === 'declined' ? 1 : 0.5 
+                }}
+              >❌</span>
+            </Tooltip>
+            {row.original.organizer.self && (
+              <Tooltip text="Delete meeting">
+                <span 
+                  onClick={() => cancelMeeting(row.original.id)}
+                  style={{ cursor: 'pointer' }}
+                >🗑️</span>
+              </Tooltip>
             )}
+            <Tooltip text="Add/Edit Notes">
+              <span 
+                onClick={() => handleNotesClick(row.original)}
+                style={{ 
+                  cursor: 'pointer',
+                  opacity: (!!row.original.notes || !!row.original.seriesNotes) ? 1 : 0.5 
+                }}
+              >📝</span>
+            </Tooltip>
           </div>
         ),
       },
@@ -619,8 +740,53 @@ function Meetings() {
           tr:hover .drag-handle {
             opacity: 1 !important;
           }
+
+          .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+          }
+
+          .modal {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            min-width: 300px;
+          }
+
+          .notes-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin: 15px 0;
+          }
+
+          .notes-container textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 8px;
+            margin-bottom: 10px;
+          }
         `}
       </style>
+      {selectedMeeting && (
+        <NotesModal
+          meeting={selectedMeeting}
+          isOpen={isNotesModalOpen}
+          onClose={() => {
+            setIsNotesModalOpen(false);
+            setSelectedMeeting(null);
+          }}
+          onSave={handleNoteSave}
+        />
+      )}
     </div>
   )
 }
