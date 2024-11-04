@@ -59,12 +59,9 @@ function AuthWrapper({ children }: AuthWrapperProps) {
       <h2>Meeting Stack</h2>
       {!hasToken ? (
         <button onClick={handleLogin}>Login</button>
-      ) : (
-        <>
-          {children}
-          <button onClick={handleLogout}>Logout</button>
-        </>
-      )}
+      ) : 
+        children
+      }
     </div>
   )
 }

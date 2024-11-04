@@ -18,6 +18,7 @@ interface Meeting {
     email: string;
     self: boolean;
   };
+  order?: number;
 }
 
 interface DateRange {
@@ -73,6 +74,23 @@ const formatDuration = (startTime: string, endTime: string): string => {
     return `${hours}h`;
   }
   return `${durationMinutes}m`;
+};
+
+// Add these helper functions near the top of the file
+const getStorageKey = (start: Date): string => {
+  return `meetingOrder_${start.toISOString().split('T')[0]}`;
+};
+
+const storeMeetingOrder = async (meetings: Meeting[], start: Date) => {
+  const orderMap = Object.fromEntries(
+    meetings.map((meeting, index) => [meeting.id, index])
+  );
+  await chrome.storage.local.set({ [getStorageKey(start)]: orderMap });
+};
+
+const getMeetingOrder = async (start: Date): Promise<Record<string, number>> => {
+  const result = await chrome.storage.local.get(getStorageKey(start));
+  return result[getStorageKey(start)] || {};
 };
 
 // Row component for handling drag and drop
@@ -176,6 +194,7 @@ function Meetings() {
   const [userEmail, setUserEmail] = useState<string>('')
   const [showSingleAttendee, setShowSingleAttendee] = useState(false)
   const [showDeclined, setShowDeclined] = useState(false)
+  const [showFree, setShowFree] = useState(false)
 
   useEffect(() => {
     chrome.identity.getProfileUserInfo((userInfo) => {
@@ -189,10 +208,12 @@ function Meetings() {
   }, [selectedRange])
 
   const fetchMeetings = async ({ start, end }: { start: Date; end: Date }) => {
-    setLoading(true)
+    setLoading(true);
     try {
+      const storedOrder = await getMeetingOrder(start);
+      
       chrome.identity.getAuthToken({ 'interactive': false }, async (token) => {
-        if (!token) return
+        if (!token) return;
 
         const response = await fetch(
           `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
@@ -208,32 +229,34 @@ function Meetings() {
         )
 
         const data = await response.json()
-        const meetingsList = data.items
-          .filter((item: any) => item.eventType === 'default')
-          .filter((item: any) => showSingleAttendee || (item.attendees && item.attendees.length > 1))
+        const meetingsList = filterMeetings(data.items)
           .map((item: any) => ({
             id: item.id,
             summary: item.summary,
             startTime: item.start.dateTime,
             endTime: item.end.dateTime,
             responseStatus: item.attendees?.find((a: any) => a.self)?.responseStatus || 'needsAction',
-            organizer: item.organizer
+            organizer: item.organizer,
+            order: storedOrder[item.id] ?? Number.MAX_SAFE_INTEGER
           }))
           .filter(meeting => showDeclined || meeting.responseStatus !== 'declined')
+          .sort((a, b) => a.order - b.order);
 
-        setMeetings(meetingsList)
-        setLoading(false)
-      })
+        setMeetings(meetingsList);
+        setLoading(false);
+      });
     } catch (error) {
-      console.error('Error fetching meetings:', error)
-      setLoading(false)
+      console.error('Error fetching meetings:', error);
+      setLoading(false);
     }
-  }
+  };
 
   const fetchMeetingsQuietly = async (start: Date, end: Date): Promise<Meeting[]> => {
     return new Promise((resolve) => {
       chrome.identity.getAuthToken({ 'interactive': false }, async (token) => {
         if (!token) return resolve([]);
+
+        const storedOrder = await getMeetingOrder(start);
 
         const response = await fetch(
           `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
@@ -249,25 +272,25 @@ function Meetings() {
         );
 
         const data = await response.json();
-        const meetingsList = data.items
-          .filter((item: any) => item.eventType === 'default')
-          .filter((item: any) => showSingleAttendee || (item.attendees && item.attendees.length > 1))
+        const meetingsList = filterMeetings(data.items)
           .map((item: any) => ({
             id: item.id,
             summary: item.summary,
             startTime: item.start.dateTime,
             endTime: item.end.dateTime,
             responseStatus: item.attendees?.find((a: any) => a.self)?.responseStatus || 'needsAction',
-            organizer: item.organizer
+            organizer: item.organizer,
+            order: storedOrder[item.id] ?? Number.MAX_SAFE_INTEGER
           }))
-          .filter(meeting => showDeclined || meeting.responseStatus !== 'declined');
+          .filter(meeting => showDeclined || meeting.responseStatus !== 'declined')
+          .sort((a, b) => a.order - b.order);
 
         resolve(meetingsList);
       });
     });
   };
 
-  const updateMeetingResponse = async (meetingId: string, response: 'accepted' | 'declined') => {
+  const updateMeetingResponse = async (meetingId: string, response: 'accepted' | 'declined' | 'tentative') => {
     setUpdating(true)
     try {
       setMeetings(prevMeetings => 
@@ -351,15 +374,18 @@ function Meetings() {
   };
 
   const moveRow = useCallback((dragIndex: number, hoverIndex: number) => {
-    setMeetings((prevMeetings) =>
-      update(prevMeetings, {
+    setMeetings((prevMeetings) => {
+      const newMeetings = update(prevMeetings, {
         $splice: [
           [dragIndex, 1],
           [hoverIndex, 0, prevMeetings[dragIndex]],
         ],
-      })
-    )
-  }, [])
+      });
+      const { start } = selectedRange.getDateRange();
+      storeMeetingOrder(newMeetings, start);
+      return newMeetings;
+    });
+  }, [selectedRange]);
 
   const formatDuration = (startTime: string, endTime: string): string => {
     const start = new Date(startTime);
@@ -376,18 +402,35 @@ function Meetings() {
   const moveToTop = useCallback((index: number) => {
     setMeetings(prevMeetings => {
       const meeting = prevMeetings[index];
-      const newMeetings = prevMeetings.filter((_, i) => i !== index);
-      return [meeting, ...newMeetings];
+      const newMeetings = [
+        meeting,
+        ...prevMeetings.filter((_, i) => i !== index)
+      ];
+      const { start } = selectedRange.getDateRange();
+      storeMeetingOrder(newMeetings, start);
+      return newMeetings;
     });
-  }, []);
+  }, [selectedRange]);
 
   const moveToBottom = useCallback((index: number) => {
     setMeetings(prevMeetings => {
       const meeting = prevMeetings[index];
-      const newMeetings = prevMeetings.filter((_, i) => i !== index);
-      return [...newMeetings, meeting];
+      const newMeetings = [
+        ...prevMeetings.filter((_, i) => i !== index),
+        meeting
+      ];
+      const { start } = selectedRange.getDateRange();
+      storeMeetingOrder(newMeetings, start);
+      return newMeetings;
     });
-  }, []);
+  }, [selectedRange]);
+
+  const filterMeetings = (items: any[]) => {
+    return items
+      .filter((item: any) => item.eventType === 'default')
+      .filter((item: any) => item.transparency !== 'transparent' || showFree)
+      .filter((item: any) => showSingleAttendee || (item.attendees && item.attendees.length > 1))
+  }
 
   const table = useReactTable({
     data: meetings,
@@ -496,6 +539,17 @@ function Meetings() {
             }}
           />
           Show declined meetings
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <input
+            type="checkbox"
+            checked={showFree}
+            onChange={(e) => {
+              setShowFree(e.target.checked)
+              fetchMeetings(selectedRange.getDateRange())
+            }}
+          />
+          Show free/OOO meetings
         </label>
       </div>
 
