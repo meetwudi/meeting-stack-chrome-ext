@@ -31,6 +31,11 @@ interface DateRange {
   getDateRange: () => { start: Date; end: Date };
 }
 
+interface Calendar {
+  id: string;
+  summary: string;
+}
+
 const DND_ITEM_TYPE = 'row'
 
 const DATE_RANGES: DateRange[] = [
@@ -219,19 +224,44 @@ function Meetings() {
   const [showFree, setShowFree] = useState(false)
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [isNotesModalOpen, setIsNotesModalOpen] = useState(false);
+  const [calendars, setCalendars] = useState<Calendar[]>([])
+  const [selectedCalendar, setSelectedCalendar] = useState<string>('primary')
+
+  const fetchCalendars = useCallback(() => {
+    chrome.identity.getAuthToken({ 'interactive': false }, async (token) => {
+      if (!token) return;
+
+      const response = await fetch(
+        'https://www.googleapis.com/calendar/v3/users/me/calendarList',
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+
+      const data = await response.json();
+      setCalendars(data.items
+        .filter((item: any) => item.accessRole === 'writer')
+        .map((item: any) => ({
+          id: item.id,
+          summary: item.summary
+        }))
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    fetchCalendars();
+  }, [fetchCalendars]);
 
   useEffect(() => {
     chrome.identity.getProfileUserInfo((userInfo) => {
-      console.log(userInfo)
       setUserEmail(userInfo.email)
     })
   }, [])
 
-  useEffect(() => {
-    fetchMeetings(selectedRange.getDateRange())
-  }, [selectedRange])
-
-  const fetchMeetings = async ({ start, end }: { start: Date; end: Date }) => {
+  const fetchMeetings = useCallback(async ({ start, end }: { start: Date; end: Date }) => {
     setLoading(true);
     try {
       const storedOrder = await getMeetingOrder(start);
@@ -240,7 +270,7 @@ function Meetings() {
         if (!token) return;
 
         const response = await fetch(
-          `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(selectedCalendar)}/events?` +
           `timeMin=${start.toISOString()}&` +
           `timeMax=${end.toISOString()}&` +
           `orderBy=startTime&` +
@@ -250,9 +280,9 @@ function Meetings() {
               'Authorization': `Bearer ${token}`
             }
           }
-        )
+        );
 
-        const data = await response.json()
+        const data = await response.json();
         
         // Load notes for all meetings
         const meetingsWithNotes = await Promise.all(
@@ -296,7 +326,11 @@ function Meetings() {
       console.error('Error fetching meetings:', error);
       setLoading(false);
     }
-  };
+  }, [selectedCalendar]);
+
+  useEffect(() => {
+    fetchMeetings(selectedRange.getDateRange());
+  }, [selectedRange, selectedCalendar, fetchMeetings]);
 
   const fetchMeetingsQuietly = async (start: Date, end: Date): Promise<Meeting[]> => {
     return new Promise((resolve) => {
@@ -306,7 +340,7 @@ function Meetings() {
         const storedOrder = await getMeetingOrder(start);
 
         const response = await fetch(
-          `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(selectedCalendar)}/events?` +
           `timeMin=${start.toISOString()}&` +
           `timeMax=${end.toISOString()}&` +
           `orderBy=startTime&` +
@@ -632,6 +666,19 @@ function Meetings() {
   return (
     <div>
       <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <select 
+          value={selectedCalendar}
+          onChange={(e) => {
+            setSelectedCalendar(e.target.value);
+          }}
+        >
+          <option value="primary">Default Calendar</option>
+          {calendars.map(calendar => (
+            <option key={calendar.id} value={calendar.id}>
+              {calendar.summary}
+            </option>
+          ))}
+        </select>
         <select 
           value={selectedRange.label}
           onChange={(e) => {

@@ -84,7 +84,7 @@ const NotesModal: React.FC<NotesModalProps> = ({ meeting, isOpen, onClose, onSav
         </div>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .modal-content {
           display: flex;
           flex-direction: column;
