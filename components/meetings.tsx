@@ -120,6 +120,48 @@ const storeSeriesNote = async (recurringEventId: string, note: string) => {
   await chrome.storage.local.set({ [getSeriesNoteStorageKey(recurringEventId)]: note });
 };
 
+// Add this helper function near the top with the other helpers
+const exportMeetings = (meetings: Meeting[]): void => {
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
+
+  const exportData = meetings.map(meeting => ({
+    Summary: meeting.summary,
+    'Start Time': formatDate(meeting.startTime),
+    Duration: formatDuration(meeting.startTime, meeting.endTime),
+    Status: meeting.responseStatus,
+    Notes: meeting.notes || '',
+    'Series Notes': meeting.seriesNotes || '',
+  }));
+
+  const csv = [
+    Object.keys(exportData[0]).join(','),
+    ...exportData.map(row => 
+      Object.values(row)
+        .map(value => `"${String(value).replace(/"/g, '""')}"`)
+        .join(',')
+    ),
+  ].join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `meetings-${new Date().toISOString().split('T')[0]}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.URL.revokeObjectURL(url);
+};
+
 // Row component for handling drag and drop
 const TableRow = ({ row, index, moveRow }: { 
   row: any, 
@@ -725,6 +767,19 @@ function Meetings() {
           />
           Show free/OOO meetings
         </label>
+        <button
+          onClick={() => exportMeetings(meetings)}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: '#4CAF50',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+        >
+          Export to CSV
+        </button>
       </div>
 
       {loading ? (
