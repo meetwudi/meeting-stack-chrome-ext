@@ -60,6 +60,19 @@ const DATE_RANGES: DateRange[] = [
   }
 ];
 
+// Add this helper function near the top of the file
+const formatDuration = (startTime: string, endTime: string): string => {
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+  const durationMinutes = (end.getTime() - start.getTime()) / (1000 * 60);
+  
+  if (durationMinutes >= 60) {
+    const hours = Math.floor(durationMinutes / 60);
+    return `${hours}h`;
+  }
+  return `${durationMinutes}m`;
+};
+
 // Row component for handling drag and drop
 const TableRow = ({ row, index, moveRow }: { 
   row: any, 
@@ -251,6 +264,34 @@ function Meetings() {
     )
   }, [])
 
+  const formatDuration = (startTime: string, endTime: string): string => {
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const durationMinutes = (end.getTime() - start.getTime()) / (1000 * 60);
+    
+    if (durationMinutes >= 60) {
+      const hours = Math.floor(durationMinutes / 60);
+      return `${hours}h`;
+    }
+    return `${durationMinutes}m`;
+  };
+
+  const moveToTop = useCallback((index: number) => {
+    setMeetings(prevMeetings => {
+      const meeting = prevMeetings[index];
+      const newMeetings = prevMeetings.filter((_, i) => i !== index);
+      return [meeting, ...newMeetings];
+    });
+  }, []);
+
+  const moveToBottom = useCallback((index: number) => {
+    setMeetings(prevMeetings => {
+      const meeting = prevMeetings[index];
+      const newMeetings = prevMeetings.filter((_, i) => i !== index);
+      return [...newMeetings, meeting];
+    });
+  }, []);
+
   const table = useReactTable({
     data: meetings,
     columns: [
@@ -261,10 +302,19 @@ function Meetings() {
       {
         header: 'Start Time',
         accessorKey: 'startTime',
+        cell: ({ getValue }) => {
+          const date = new Date(getValue() as string);
+          return date.toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          });
+        },
       },
       {
-        header: 'End Time',
-        accessorKey: 'endTime',
+        header: 'Duration',
+        cell: ({ row }) => formatDuration(row.original.startTime, row.original.endTime),
       },
       {
         header: 'Status',
@@ -273,7 +323,9 @@ function Meetings() {
       {
         header: 'Actions',
         cell: ({ row }) => (
-          <div>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <button onClick={() => moveToTop(row.index)} title="Move to top">↑↑</button>
+            <button onClick={() => moveToBottom(row.index)} title="Move to bottom">↓↓</button>
             {row.original.organizer.self ? (
               <button onClick={() => cancelMeeting(row.original.id)}>Cancel</button>
             ) : (
