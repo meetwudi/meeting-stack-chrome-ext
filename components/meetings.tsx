@@ -162,6 +162,13 @@ const exportMeetings = (meetings: Meeting[]): void => {
   window.URL.revokeObjectURL(url);
 };
 
+// Add this new function near the top with other helper functions
+const handleLogout = () => {
+  chrome.identity.clearAllCachedAuthTokens(() => {
+    window.location.reload();
+  });
+};
+
 // Row component for handling drag and drop
 const TableRow = ({ row, index, moveRow }: { 
   row: any, 
@@ -779,6 +786,19 @@ function Meetings() {
           }}
         >
           Export to CSV
+        </button>
+        <button
+          onClick={handleLogout}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: '#f44336',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+        >
+          Logout
         </button>
       </div>
 
