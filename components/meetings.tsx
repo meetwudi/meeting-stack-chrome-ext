@@ -13,7 +13,7 @@ interface Meeting {
   summary: string;
   startTime: string;
   endTime: string;
-  status: 'accepted' | 'declined' | 'needsAction' | 'tentative';
+  responseStatus: 'accepted' | 'declined' | 'needsAction' | 'tentative';
   organizer: {
     email: string;
     self: boolean;
@@ -134,7 +134,9 @@ function Meetings() {
   const [loading, setLoading] = useState(true)
   const [selectedRange, setSelectedRange] = useState<DateRange>(DATE_RANGES[0])
   const [userEmail, setUserEmail] = useState<string>('')
-  
+  const [showSingleAttendee, setShowSingleAttendee] = useState(false)
+  const [showDeclined, setShowDeclined] = useState(false)
+
   useEffect(() => {
     chrome.identity.getProfileUserInfo((userInfo) => {
       console.log(userInfo)
@@ -168,14 +170,16 @@ function Meetings() {
         const data = await response.json()
         const meetingsList = data.items
           .filter((item: any) => item.eventType === 'default')
+          .filter((item: any) => showSingleAttendee || (item.attendees && item.attendees.length > 1))
           .map((item: any) => ({
             id: item.id,
             summary: item.summary,
             startTime: item.start.dateTime,
             endTime: item.end.dateTime,
-            status: item.status,
+            responseStatus: item.attendees?.find((a: any) => a.self)?.responseStatus || 'needsAction',
             organizer: item.organizer
           }))
+          .filter(meeting => showDeclined || meeting.responseStatus !== 'declined')
 
         setMeetings(meetingsList)
         setLoading(false)
@@ -264,7 +268,7 @@ function Meetings() {
       },
       {
         header: 'Status',
-        accessorKey: 'status',
+        accessorKey: 'responseStatus',
       },
       {
         header: 'Actions',
@@ -287,7 +291,7 @@ function Meetings() {
 
   return (
     <div>
-      <div style={{ marginBottom: '16px' }}>
+      <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '16px' }}>
         <select 
           value={selectedRange.label}
           onChange={(e) => {
@@ -301,6 +305,28 @@ function Meetings() {
             </option>
           ))}
         </select>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <input
+            type="checkbox"
+            checked={showSingleAttendee}
+            onChange={(e) => {
+              setShowSingleAttendee(e.target.checked)
+              fetchMeetings(selectedRange.getDateRange())
+            }}
+          />
+          Show single-attendee meetings
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <input
+            type="checkbox"
+            checked={showDeclined}
+            onChange={(e) => {
+              setShowDeclined(e.target.checked)
+              fetchMeetings(selectedRange.getDateRange())
+            }}
+          />
+          Show declined meetings
+        </label>
       </div>
 
       {loading ? (
