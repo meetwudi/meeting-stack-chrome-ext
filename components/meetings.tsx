@@ -290,7 +290,7 @@ function Meetings() {
     });
   };
 
-  const updateMeetingResponse = async (meetingId: string, response: 'accepted' | 'declined' | 'tentative') => {
+  const updateMeetingResponse = async (meetingId: string, response: 'accepted' | 'declined' | 'tentative' | 'needsAction') => {
     setUpdating(true)
     try {
       setMeetings(prevMeetings => 
@@ -492,6 +492,12 @@ function Meetings() {
                   icon="✗"
                   title="Decline"
                   active={row.original.responseStatus === 'declined'}
+                />
+                <ResponseButton 
+                  onClick={() => updateMeetingResponse(row.original.id, 'needsAction')}
+                  icon="🔄"
+                  title="Reset RSVP"
+                  active={row.original.responseStatus === 'needsAction'}
                 />
               </>
             )}
