@@ -4,7 +4,7 @@ import Meetings from "~components/meetings"
 function IndexPage() {
   return (
     <AuthWrapper>
-      <Meetings />
+      {(logoutFn) => <Meetings onLogout={logoutFn} />}
     </AuthWrapper>
   )
 }

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 
 interface AuthWrapperProps {
-  children: React.ReactNode;
+  children: (logoutFn: () => void) => React.ReactNode;
 }
 
 function AuthWrapper({ children }: AuthWrapperProps) {
@@ -38,16 +38,29 @@ function AuthWrapper({ children }: AuthWrapperProps) {
   }
 
   const handleLogout = () => {
-    chrome.identity.getAuthToken({ 'interactive': false }, (token) => {
+    chrome.identity.getAuthToken({ 'interactive': false }, async (token) => {
       if (token) {
-        // Revoke token
-        chrome.identity.removeCachedAuthToken({ token })
-        // Remove from storage
-        chrome.storage.local.remove('token')
-        setHasToken(false)
+        try {
+          // Revoke access from Google's OAuth server
+          const response = await fetch(`https://accounts.google.com/o/oauth2/revoke?token=${token}`);
+          if (!response.ok) {
+            throw new Error('Failed to revoke token');
+          }
+          
+          // Remove token from Chrome's cache
+          await chrome.identity.removeCachedAuthToken({ token });
+          // Clear all cached tokens
+          await chrome.identity.clearAllCachedAuthTokens();
+          // Remove from storage
+          await chrome.storage.local.remove('token');
+          setHasToken(false);
+          window.location.reload();
+        } catch (error) {
+          console.error('Logout failed:', error);
+        }
       }
-    })
-  }
+    });
+  };
 
   return (
     <div
@@ -60,7 +73,7 @@ function AuthWrapper({ children }: AuthWrapperProps) {
       {!hasToken ? (
         <button onClick={handleLogin}>Login</button>
       ) : 
-        children
+        children(handleLogout)
       }
     </div>
   )
