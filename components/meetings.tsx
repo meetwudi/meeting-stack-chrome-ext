@@ -1,5 +1,12 @@
-import React, { useEffect, useState } from 'react'
-import { DragDropContext, Draggable, Droppable } from 'react-beautiful-dnd';
+import React, { useEffect, useState, useCallback, useRef } from 'react'
+import { DndProvider, useDrag, useDrop } from 'react-dnd'
+import { HTML5Backend } from 'react-dnd-html5-backend'
+import update from 'immutability-helper'
+import {
+  useReactTable,
+  getCoreRowModel,
+  flexRender,
+} from '@tanstack/react-table'
 
 interface Meeting {
   id: string;
@@ -17,6 +24,8 @@ interface DateRange {
   label: string;
   getDateRange: () => { start: Date; end: Date };
 }
+
+const DND_ITEM_TYPE = 'row'
 
 const DATE_RANGES: DateRange[] = [
   {
@@ -50,6 +59,75 @@ const DATE_RANGES: DateRange[] = [
     }
   }
 ];
+
+// Row component for handling drag and drop
+const TableRow = ({ row, index, moveRow }: { 
+  row: any, 
+  index: number, 
+  moveRow: (dragIndex: number, hoverIndex: number) => void 
+}) => {
+  const dropRef = useRef<HTMLTableRowElement>(null)
+  const dragRef = useRef<HTMLSpanElement>(null)
+
+  const [{ isDragging }, drag, preview] = useDrag({
+    type: DND_ITEM_TYPE,
+    item: { index },
+    collect: (monitor) => ({
+      isDragging: monitor.isDragging(),
+    }),
+  })
+
+  const [, drop] = useDrop({
+    accept: DND_ITEM_TYPE,
+    hover(item: { index: number }, monitor) {
+      if (!dropRef.current) return
+      const dragIndex = item.index
+      const hoverIndex = index
+
+      if (dragIndex === hoverIndex) return
+
+      const hoverBoundingRect = dropRef.current.getBoundingClientRect()
+      const hoverMiddleY = (hoverBoundingRect.bottom - hoverBoundingRect.top) / 2
+      const clientOffset = monitor.getClientOffset()
+      const hoverClientY = clientOffset!.y - hoverBoundingRect.top
+
+      if (dragIndex < hoverIndex && hoverClientY < hoverMiddleY) return
+      if (dragIndex > hoverIndex && hoverClientY > hoverMiddleY) return
+
+      moveRow(dragIndex, hoverIndex)
+      item.index = hoverIndex
+    },
+  })
+
+  preview(drop(dropRef))
+  drag(dragRef)
+
+  return (
+    <tr
+      ref={dropRef}
+      style={{ opacity: isDragging ? 0.5 : 1, borderBottom: '1px solid #ddd' }}
+    >
+      <td style={{ padding: '8px' }}>
+        <span
+          ref={dragRef}
+          className="drag-handle"
+          style={{ 
+            cursor: 'grab', 
+            opacity: 0,
+            userSelect: 'none',
+          }}
+        >
+          ⋮⋮
+        </span>
+      </td>
+      {row.getVisibleCells().map((cell: any) => (
+        <td key={cell.id} style={{ padding: '8px' }}>
+          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+        </td>
+      ))}
+    </tr>
+  )
+}
 
 function Meetings() {
   const [meetings, setMeetings] = useState<Meeting[]>([])
@@ -158,15 +236,54 @@ function Meetings() {
     }
   };
 
-  const onDragEnd = (result: any) => {
-    if (!result.destination) return;
-    
-    const items = Array.from(meetings);
-    const [reorderedItem] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, reorderedItem);
+  const moveRow = useCallback((dragIndex: number, hoverIndex: number) => {
+    setMeetings((prevMeetings) =>
+      update(prevMeetings, {
+        $splice: [
+          [dragIndex, 1],
+          [hoverIndex, 0, prevMeetings[dragIndex]],
+        ],
+      })
+    )
+  }, [])
 
-    setMeetings(items);
-  };
+  const table = useReactTable({
+    data: meetings,
+    columns: [
+      {
+        header: 'Summary',
+        accessorKey: 'summary',
+      },
+      {
+        header: 'Start Time',
+        accessorKey: 'startTime',
+      },
+      {
+        header: 'End Time',
+        accessorKey: 'endTime',
+      },
+      {
+        header: 'Status',
+        accessorKey: 'status',
+      },
+      {
+        header: 'Actions',
+        cell: ({ row }) => (
+          <div>
+            {row.original.organizer.self ? (
+              <button onClick={() => cancelMeeting(row.original.id)}>Cancel</button>
+            ) : (
+              <>
+                <button onClick={() => updateMeetingResponse(row.original.id, 'accepted')}>Accept</button>
+                <button onClick={() => updateMeetingResponse(row.original.id, 'declined')}>Decline</button>
+              </>
+            )}
+          </div>
+        ),
+      },
+    ],
+    getCoreRowModel: getCoreRowModel(),
+  })
 
   return (
     <div>
@@ -194,90 +311,42 @@ function Meetings() {
           {meetings.length === 0 ? (
             <p>No upcoming meetings</p>
           ) : (
-            <DragDropContext onDragEnd={onDragEnd}>
-              <Droppable droppableId="meetings">
-                {(provided) => (
-                  <ul 
-                    {...provided.droppableProps}
-                    ref={provided.innerRef}
-                    style={{ listStyle: 'none', padding: 0 }}
-                  >
-                    {meetings.map((meeting, index) => (
-                      <Draggable 
-                        key={meeting.id} 
-                        draggableId={meeting.id} 
-                        index={index}
-                      >
-                        {(provided) => (
-                          <li
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            style={{
-                              ...provided.draggableProps.style,
-                              marginBottom: '12px',
-                              padding: '12px',
-                              border: '1px solid #ddd',
-                              borderRadius: '4px',
-                              backgroundColor: 'white'
-                            }}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <div>
-                                <strong>{meeting.summary}</strong>
-                                <br />
-                                <small>
-                                  {new Date(meeting.startTime).toLocaleString()} - 
-                                  {new Date(meeting.endTime).toLocaleTimeString()}
-                                </small>
-                                <br />
-                                <small>Organizer: {meeting.organizer.email}</small>
-                                <br />
-                                <small style={{ 
-                                  color: meeting.status === 'accepted' ? 'green' : 
-                                         meeting.status === 'declined' ? 'red' : 'orange'
-                                }}>
-                                  Status: {meeting.status}
-                                </small>
-                              </div>
-                              
-                              {!meeting.organizer.self && (
-                                <div>
-                                  <button
-                                    onClick={() => updateMeetingResponse(meeting.id, 'accepted')}
-                                    style={{ marginRight: '8px' }}
-                                  >
-                                    Accept
-                                  </button>
-                                  <button
-                                    onClick={() => updateMeetingResponse(meeting.id, 'declined')}
-                                  >
-                                    Decline
-                                  </button>
-                                </div>
-                              )}
-                              
-                              {meeting.organizer.self && (
-                                <button 
-                                  onClick={() => cancelMeeting(meeting.id)}
-                                  style={{ color: 'red' }}
-                                >
-                                  Cancel Meeting
-                                </button>
-                              )}
-                            </div>
-                          </li>
-                        )}
-                      </Draggable>
-                    ))}
-                    {provided.placeholder}
-                  </ul>
-                )}
-              </Droppable>
-            </DragDropContext>
+            <DndProvider backend={HTML5Backend}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  {table.getHeaderGroups().map(headerGroup => (
+                    <tr key={headerGroup.id}>
+                      <th></th> {/* Column for drag handle */}
+                      {headerGroup.headers.map(header => (
+                        <th key={header.id} style={{ textAlign: 'left', padding: '8px', borderBottom: '2px solid #ddd' }}>
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </th>
+                      ))}
+                    </tr>
+                  ))}
+                </thead>
+                <tbody>
+                  {table.getRowModel().rows.map((row, index) => (
+                    <TableRow
+                      key={row.id}
+                      row={row}
+                      index={index}
+                      moveRow={moveRow}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </DndProvider>
           )}
         </>
       )}
+      <style>
+        {`
+          tr:hover .drag-handle {
+            opacity: 1 !important;
+          }
+        `}
+      </style>
     </div>
   )
 }
