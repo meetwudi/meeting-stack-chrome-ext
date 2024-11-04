@@ -583,7 +583,7 @@ function Meetings() {
                   <thead>
                     {table.getHeaderGroups().map(headerGroup => (
                       <tr key={headerGroup.id}>
-                        <th></th> {/* Column for drag handle */}
+                        <th style={{ padding: '8px', borderBottom: '2px solid #ddd' }}></th>
                         {headerGroup.headers.map(header => (
                           <th key={header.id} style={{ textAlign: 'left', padding: '8px', borderBottom: '2px solid #ddd' }}>
                             {flexRender(header.column.columnDef.header, header.getContext())}
