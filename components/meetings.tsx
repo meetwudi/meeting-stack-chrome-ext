@@ -145,6 +145,7 @@ const TableRow = ({ row, index, moveRow }: {
 function Meetings() {
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
+  const [updating, setUpdating] = useState(false)
   const [selectedRange, setSelectedRange] = useState<DateRange>(DATE_RANGES[0])
   const [userEmail, setUserEmail] = useState<string>('')
   const [showSingleAttendee, setShowSingleAttendee] = useState(false)
@@ -203,8 +204,54 @@ function Meetings() {
     }
   }
 
+  const fetchMeetingsQuietly = async (start: Date, end: Date): Promise<Meeting[]> => {
+    return new Promise((resolve) => {
+      chrome.identity.getAuthToken({ 'interactive': false }, async (token) => {
+        if (!token) return resolve([]);
+
+        const response = await fetch(
+          `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
+          `timeMin=${start.toISOString()}&` +
+          `timeMax=${end.toISOString()}&` +
+          `orderBy=startTime&` +
+          `singleEvents=true`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          }
+        );
+
+        const data = await response.json();
+        const meetingsList = data.items
+          .filter((item: any) => item.eventType === 'default')
+          .filter((item: any) => showSingleAttendee || (item.attendees && item.attendees.length > 1))
+          .map((item: any) => ({
+            id: item.id,
+            summary: item.summary,
+            startTime: item.start.dateTime,
+            endTime: item.end.dateTime,
+            responseStatus: item.attendees?.find((a: any) => a.self)?.responseStatus || 'needsAction',
+            organizer: item.organizer
+          }))
+          .filter(meeting => showDeclined || meeting.responseStatus !== 'declined');
+
+        resolve(meetingsList);
+      });
+    });
+  };
+
   const updateMeetingResponse = async (meetingId: string, response: 'accepted' | 'declined') => {
+    setUpdating(true)
     try {
+      setMeetings(prevMeetings => 
+        prevMeetings.map(meeting => 
+          meeting.id === meetingId 
+            ? { ...meeting, responseStatus: response }
+            : meeting
+        )
+      )
+
       chrome.identity.getAuthToken({ 'interactive': false }, async (token) => {
         if (!token) return;
 
@@ -222,16 +269,25 @@ function Meetings() {
           }
         );
 
-        // Refresh meetings after update
-        fetchMeetings(selectedRange.getDateRange());
+        const { start, end } = selectedRange.getDateRange();
+        const updatedMeetings = await fetchMeetingsQuietly(start, end);
+        setMeetings(updatedMeetings);
       });
     } catch (error) {
       console.error('Error updating meeting:', error);
+      fetchMeetings(selectedRange.getDateRange());
+    } finally {
+      setUpdating(false)
     }
   };
 
   const cancelMeeting = async (meetingId: string) => {
+    setUpdating(true)
     try {
+      setMeetings(prevMeetings => 
+        prevMeetings.filter(meeting => meeting.id !== meetingId)
+      )
+
       chrome.identity.getAuthToken({ 'interactive': false }, async (token) => {
         if (!token) return;
 
@@ -244,12 +300,12 @@ function Meetings() {
             }
           }
         );
-
-        // Refresh meetings after cancellation
-        fetchMeetings(selectedRange.getDateRange());
       });
     } catch (error) {
       console.error('Error canceling meeting:', error);
+      fetchMeetings(selectedRange.getDateRange());
+    } finally {
+      setUpdating(false)
     }
   };
 
@@ -389,32 +445,50 @@ function Meetings() {
           {meetings.length === 0 ? (
             <p>No upcoming meetings</p>
           ) : (
-            <DndProvider backend={HTML5Backend}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  {table.getHeaderGroups().map(headerGroup => (
-                    <tr key={headerGroup.id}>
-                      <th></th> {/* Column for drag handle */}
-                      {headerGroup.headers.map(header => (
-                        <th key={header.id} style={{ textAlign: 'left', padding: '8px', borderBottom: '2px solid #ddd' }}>
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                        </th>
-                      ))}
-                    </tr>
-                  ))}
-                </thead>
-                <tbody>
-                  {table.getRowModel().rows.map((row, index) => (
-                    <TableRow
-                      key={row.id}
-                      row={row}
-                      index={index}
-                      moveRow={moveRow}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </DndProvider>
+            <div style={{ position: 'relative' }}>
+              {updating && (
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: 'rgba(255, 255, 255, 0.5)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 1
+                }}>
+                  Updating...
+                </div>
+              )}
+              <DndProvider backend={HTML5Backend}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    {table.getHeaderGroups().map(headerGroup => (
+                      <tr key={headerGroup.id}>
+                        <th></th> {/* Column for drag handle */}
+                        {headerGroup.headers.map(header => (
+                          <th key={header.id} style={{ textAlign: 'left', padding: '8px', borderBottom: '2px solid #ddd' }}>
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </th>
+                        ))}
+                      </tr>
+                    ))}
+                  </thead>
+                  <tbody>
+                    {table.getRowModel().rows.map((row, index) => (
+                      <TableRow
+                        key={row.id}
+                        row={row}
+                        index={index}
+                        moveRow={moveRow}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </DndProvider>
+            </div>
           )}
         </>
       )}
