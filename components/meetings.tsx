@@ -142,6 +142,30 @@ const TableRow = ({ row, index, moveRow }: {
   )
 }
 
+const ResponseButton = ({ 
+  onClick, 
+  icon, 
+  title, 
+  active = false 
+}: { 
+  onClick: () => void, 
+  icon: string, 
+  title: string,
+  active?: boolean 
+}) => (
+  <button 
+    onClick={onClick} 
+    title={title}
+    style={{
+      padding: '4px 8px',
+      opacity: active ? 1 : 0.7,
+      cursor: 'pointer',
+    }}
+  >
+    {icon}
+  </button>
+);
+
 function Meetings() {
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
@@ -255,6 +279,23 @@ function Meetings() {
       chrome.identity.getAuthToken({ 'interactive': false }, async (token) => {
         if (!token) return;
 
+        const getResponse = await fetch(
+          `https://www.googleapis.com/calendar/v3/calendars/primary/events/${meetingId}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            }
+          }
+        );
+        const event = await getResponse.json();
+
+        const updatedEvent = {
+          ...event,
+          attendees: event.attendees?.map((attendee: any) => 
+            attendee.self ? { ...attendee, responseStatus: response } : attendee
+          )
+        };
+
         await fetch(
           `https://www.googleapis.com/calendar/v3/calendars/primary/events/${meetingId}?sendUpdates=all`,
           {
@@ -263,9 +304,7 @@ function Meetings() {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              status: response
-            })
+            body: JSON.stringify(updatedEvent)
           }
         );
 
@@ -361,6 +400,7 @@ function Meetings() {
         cell: ({ getValue }) => {
           const date = new Date(getValue() as string);
           return date.toLocaleString('en-US', {
+            weekday: 'short',
             month: 'short',
             day: 'numeric',
             hour: 'numeric',
@@ -383,11 +423,31 @@ function Meetings() {
             <button onClick={() => moveToTop(row.index)} title="Move to top">↑↑</button>
             <button onClick={() => moveToBottom(row.index)} title="Move to bottom">↓↓</button>
             {row.original.organizer.self ? (
-              <button onClick={() => cancelMeeting(row.original.id)}>Cancel</button>
+              <ResponseButton 
+                onClick={() => cancelMeeting(row.original.id)}
+                icon="🗑️"
+                title="Delete meeting"
+              />
             ) : (
               <>
-                <button onClick={() => updateMeetingResponse(row.original.id, 'accepted')}>Accept</button>
-                <button onClick={() => updateMeetingResponse(row.original.id, 'declined')}>Decline</button>
+                <ResponseButton 
+                  onClick={() => updateMeetingResponse(row.original.id, 'accepted')}
+                  icon="✓"
+                  title="Accept"
+                  active={row.original.responseStatus === 'accepted'}
+                />
+                <ResponseButton 
+                  onClick={() => updateMeetingResponse(row.original.id, 'tentative')}
+                  icon="❓"
+                  title="Maybe"
+                  active={row.original.responseStatus === 'tentative'}
+                />
+                <ResponseButton 
+                  onClick={() => updateMeetingResponse(row.original.id, 'declined')}
+                  icon="✗"
+                  title="Decline"
+                  active={row.original.responseStatus === 'declined'}
+                />
               </>
             )}
           </div>
