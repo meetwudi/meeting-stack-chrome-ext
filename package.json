@@ -10,8 +10,10 @@
     "package": "plasmo package"
   },
   "dependencies": {
+    "@types/react-beautiful-dnd": "^13.1.8",
     "plasmo": "0.89.3",
     "react": "18.2.0",
+    "react-beautiful-dnd": "^13.1.1",
     "react-dom": "18.2.0"
   },
   "devDependencies": {
@@ -31,7 +33,8 @@
     "oauth2": {
       "client_id": "928994118672-nf77na4rcfted2r9o256mg3tq8asgrlb.apps.googleusercontent.com",
       "scopes": [
-        "https://www.googleapis.com/auth/calendar"
+        "https://www.googleapis.com/auth/calendar",
+        "https://www.googleapis.com/auth/calendar.events"
       ]
     },
     "permissions": [
