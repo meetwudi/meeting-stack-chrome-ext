@@ -29,32 +29,34 @@ const DND_ITEM_TYPE = 'row'
 
 const DATE_RANGES: DateRange[] = [
   {
+    label: 'This Week',
+    getDateRange: () => {
+      const start = new Date();
+      // Get to this week's Monday
+      start.setDate(start.getDate() - start.getDay() + 1);
+      start.setHours(0, 0, 0, 0);
+      
+      const end = new Date(start);
+      // Set to Friday
+      end.setDate(end.getDate() + 4);
+      end.setHours(23, 59, 59, 999);
+      
+      return { start, end };
+    }
+  },
+  {
     label: 'Next Week',
     getDateRange: () => {
       const start = new Date();
-      start.setDate(start.getDate() + 1); // Start tomorrow
+      // Get to next Monday
+      start.setDate(start.getDate() - start.getDay() + 8);
+      start.setHours(0, 0, 0, 0);
+      
       const end = new Date(start);
-      end.setDate(end.getDate() + 7);
-      return { start, end };
-    }
-  },
-  {
-    label: 'Next 2 Weeks',
-    getDateRange: () => {
-      const start = new Date();
-      start.setDate(start.getDate() + 1);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 14);
-      return { start, end };
-    }
-  },
-  {
-    label: 'Next Month',
-    getDateRange: () => {
-      const start = new Date();
-      start.setDate(start.getDate() + 1);
-      const end = new Date(start);
-      end.setMonth(end.getMonth() + 1);
+      // Set to Friday
+      end.setDate(end.getDate() + 4);
+      end.setHours(23, 59, 59, 999);
+      
       return { start, end };
     }
   }
